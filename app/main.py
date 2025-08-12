@@ -35,14 +35,14 @@ def _norm(s: str | None) -> str:
 
 # Exact 8 roles from your sheet → internal course key
 TYPE_MAP = {
-    "domain expert":            "domain_expert",
-    "firmware developer":       "firmware_developer",
-    "integration engineer":     "integration_engineer",
-    "mechanical designer":      "mech_designer",
-    "pcb designer":             "pcb_designer",
-    "procurement specialist":   "procurement_specialist",
-    "product designer":         "product_architect",   # per your decision
-    "product manager":          "product_manager",
+    "Domain Expert":            "domain_expert",
+    "Firmware Developer":       "firmware_developer",
+    "Integration Engineer":     "integration_engineer",
+    "Mechanical Designer":      "mech_designer",
+    "PCB Designer":             "pcb_designer",
+    "Procurement Specialist":   "procurement_specialist",
+    "Product Designer":         "product_architect",   # per your decision
+    "Product Manager":          "product_manager",
 }
 
 def map_type_to_url(type_str: str | None) -> str | None:
