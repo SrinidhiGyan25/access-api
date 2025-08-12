@@ -1,18 +1,20 @@
 import os, re
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 
-app = FastAPI(title="Assess Router POC")
+app = FastAPI(title="Assess Router")
 
+# ---- CORS (open for POC; restrict in prod) ----
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # tighten later
+    allow_origins=["*"],          # set to your site origin in prod
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
+# ---- Config ----
 BASE = os.getenv("STATIC_BASE_URL", "https://assess-poc.onrender.com")
 
 COURSE_URLS = {
@@ -26,7 +28,7 @@ COURSE_URLS = {
     "firmware_developer":       f"{BASE}/firmware-developer.html",
 }
 
-# ---- Keyword map tuned to your 8 courses ----
+# ---- Keyword map (fallback) ----
 KEYWORDS = {
     "product_architect": {
         "weight": 1.0,
@@ -58,7 +60,7 @@ KEYWORDS = {
         "weight": 1.1,
         "keywords": [
             "integration","bring-up","system integration","hardware integration","software integration",
-            "hIL","sIL","system test","integration test","interface testing","interoperability",
+            "hil","sil","system test","integration test","interface testing","interoperability",
             "can","lin","ethernet","modbus","spi","i2c","uart","rs485","jtag","boundary scan"
         ],
         "boost_tools": ["vector canoe","canalyzer","labview","teststand","ni","dspace","raspberry pi","arduino"]
@@ -98,24 +100,40 @@ KEYWORDS = {
     }
 }
 
+# Scoring thresholds (used only in debug output now)
 MIN_SCORE = 2.0
 MARGIN = 1.0
+
+# ---- Type/category regex mapping (first-pass) ----
+TYPE_RULES = [
+    (r"\b(pcb|hardware|board|layout|altium|allegro|orcad)\b", "pcb_designer"),
+    (r"\b(embedded|firmware|mcu|rtos|device\s*driver)\b", "firmware_developer"),
+    (r"\b(mechanical|mech\.?|cad|solidworks|creo|catia|nx)\b", "mech_designer"),
+    (r"\b(procurement|sourcing|buyer|supply\s*chain|vendor|rfq|ppap)\b", "procurement_specialist"),
+    (r"\b(integration|bring[- ]?up|system\s*test|hil|sil|interoperability)\b", "integration_engineer"),
+    (r"\b(architect|architecture|solution\s*architect|system\s*architect)\b", "product_architect"),
+    (r"\b(product\s*manager|pm\b|roadmap|gtm|backlog|stakeholder)\b", "product_manager"),
+    (r"\b(domain\s*expert|sme|compliance|regulatory|iso|iec|ul|aspice|functional\s*safety)\b", "domain_expert"),
+]
+
+# ---------- helpers ----------
+def pick_by_type(type_str: str | None) -> str | None:
+    if not type_str:
+        return None
+    t = type_str.lower()
+    for pattern, course in TYPE_RULES:
+        if re.search(pattern, t):
+            return course
+    return None
 
 def score_course(text: str, course_key: str) -> float:
     cfg = KEYWORDS[course_key]
     base = cfg.get("weight", 1.0)
     score = 0.0
-
-    # keyword hits (phrases allowed)
     for kw in cfg["keywords"]:
-        hits = len(re.findall(rf"\b{re.escape(kw.lower())}\b", text))
-        score += hits * 1.0
-
-    # tool/acronym boosts
+        score += len(re.findall(rf"\b{re.escape(kw.lower())}\b", text)) * 1.0
     for tool in cfg.get("boost_tools", []):
-        hits = len(re.findall(rf"\b{re.escape(tool.lower())}\b", text))
-        score += hits * 1.5
-
+        score += len(re.findall(rf"\b{re.escape(tool.lower())}\b", text)) * 1.5
     return base * score
 
 def decide(text: str):
@@ -126,34 +144,62 @@ def decide(text: str):
     confident = s1 >= MIN_SCORE and (s1 - s2) >= MARGIN
     return {"k1": k1, "s1": s1, "k2": k2, "s2": s2, "confident": confident, "scores": scores}
 
+# ---------- routes ----------
+@app.get("/")
+def root():
+    return {"status": "ok", "usage": "/route?title=...&company=...&desc=...&type=..."}
+
+@app.get("/favicon.ico")
+def favicon():
+    return Response(status_code=204)
+
+@app.get("/healthz")
+def health():
+    return {"ok": True}
+
 @app.get("/route")
 @app.post("/route")
 async def route(request: Request):
-    """
-    GET:  /route?title=...&company=...&desc=...&debug=1
-    POST: { "title": "...", "company": "...", "desc": "...", "debug": false }
-    """
     if request.method == "GET":
         q = request.query_params
         title = q.get("title", "")
         company = q.get("company", "")
         desc = q.get("desc", "")
+        job_type = q.get("type", "")          # optional from frontend
         debug = q.get("debug", "0") == "1"
     else:
         body = await request.json()
         title = body.get("title", "")
         company = body.get("company", "")
         desc = body.get("desc", "")
+        job_type = body.get("type", "")
         debug = body.get("debug", False)
 
-    text = " ".join([title, company, desc])[:20000]
-    result = decide(text)
-    url = COURSE_URLS[result["k1"]]
+    # 1) Try Adzuna type/category first
+    via_type = False
+    course = pick_by_type(job_type)
+    if course:
+        via_type = True
+    else:
+        # 2) Fallback: keyword scoring
+        result = decide((" ".join([title, company, desc])[:20000]).lower())
+        course = result["k1"]
+
+    url = COURSE_URLS[course]
 
     if debug:
-        return JSONResponse({
-            "decision": "auto" if result["confident"] else "low_confidence",
-            "redirect": url, "top1": [result["k1"], result["s1"]],
-            "top2": [result["k2"], result["s2"]], "scores": result["scores"]
-        })
+        payload = {
+            "via": "type" if via_type else "keywords",
+            "type_value": job_type,
+            "redirect": url,
+        }
+        if not via_type:
+            payload.update({
+                "top1": [result["k1"], result["s1"]],
+                "top2": [result["k2"], result["s2"]],
+                "scores": result["scores"]
+            })
+        return JSONResponse(payload)
+
+    # Always redirect in non-debug mode (POC-friendly)
     return RedirectResponse(url=url, status_code=302)
