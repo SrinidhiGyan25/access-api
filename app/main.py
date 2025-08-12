@@ -150,7 +150,7 @@ async def route(request: Request):
     result = decide(text)
     url = COURSE_URLS[result["k1"]]
 
-    if debug or not result["confident"]:
+    if debug:
         return JSONResponse({
             "decision": "auto" if result["confident"] else "low_confidence",
             "redirect": url, "top1": [result["k1"], result["s1"]],
