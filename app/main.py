@@ -16,7 +16,7 @@ app.add_middleware(
 
 # ---------------- Config ----------------
 # Your static site base (Render Static Site URL or your custom domain)
-BASE = os.getenv("STATIC_BASE_URL", "https://assess-site.onrender.com")
+BASE = os.getenv("STATIC_BASE_URL", "https://access-site.onrender.com")
 
 COURSE_URLS = {
     "domain_expert":            f"{BASE}/domain-expert.html",
