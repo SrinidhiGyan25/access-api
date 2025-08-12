@@ -16,7 +16,7 @@ app.add_middleware(
 
 # ---------------- Config ----------------
 # Your static site base (Render Static Site URL or your custom domain)
-BASE = os.getenv("STATIC_BASE_URL", "https://assess-poc.onrender.com")
+BASE = os.getenv("STATIC_BASE_URL", "https://assess-site.onrender.com")
 
 COURSE_URLS = {
     "domain_expert":            f"{BASE}/domain-expert.html",
@@ -31,7 +31,9 @@ COURSE_URLS = {
 
 # Normalizer for incoming type/mainJOB strings
 def _norm(s: str | None) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (s or "")).strip().lower()
+    if not s:
+        return ""
+    return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
 
 # Exact 8 roles from your sheet → internal course key
 TYPE_MAP = {
